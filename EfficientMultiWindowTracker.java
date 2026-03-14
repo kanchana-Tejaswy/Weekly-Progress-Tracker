@@ -1,125 +1,18 @@
 import java.awt.*;
 import java.awt.event.*;
-import java.io.*;
-
-// ------------------------ Task class ------------------------
-class Task {
-    private final String name;
-    private double progress;
-    private String status;
-
-    public Task(String name) {
-        this.name = name;
-        this.progress = 0.0;
-        this.status = "Not Started";
-    }
-
-    public Task(String name, double totalParts, double completedParts) {
-        this.name = name;
-        setProgressFromParts(totalParts, completedParts);
-    }
-
-    public String getName() { return name; }
-
-    public double getProgress() { return progress; }
-
-    public String getStatus() { return status; }
-
-    public void setProgress(double p) {
-        if (p < 0) p = 0;
-        if (p > 100) p = 100;
-        this.progress = p;
-        updateStatus();
-    }
-
-    public void setProgressFromParts(double totalParts, double completedParts) {
-        if (totalParts <= 0) {
-            setProgress(0);
-            return;
-        }
-        double percent = (completedParts / totalParts) * 100.0;
-        setProgress(percent);
-    }
-
-    private void updateStatus() {
-        if (progress == 0.0) status = "Not Started";
-        else if (progress < 100.0) status = "In Progress";
-        else status = "Completed";
-    }
-
-    public String toString() {
-        return name + " - " + String.format("%.2f", progress) + "% - " + status;
-    }
-}
-
-// ---------------------- Category class ----------------------
-class Category {
-    private static final int MAX_TASKS = 10;
-    private final String name;
-    private final Task[] tasks;
-    private int taskCount;
-
-    public Category(String name) {
-        this.name = name;
-        this.tasks = new Task[MAX_TASKS];
-        this.taskCount = 0;
-    }
-
-    public String getName() { return name; }
-
-    public int getTaskCount() { return taskCount; }
-
-    public Task[] getTasks() { return tasks; }
-
-    public boolean addTask(Task t) {
-        if (taskCount >= tasks.length) return false;
-        tasks[taskCount++] = t;
-        return true;
-    }
-
-    public Task findTask(String taskName) {
-        for (int i = 0; i < taskCount; i++) {
-            if (tasks[i].getName().equalsIgnoreCase(taskName.trim()))
-                return tasks[i];
-        }
-        return null;
-    }
-
-    public double getAverageProgress() {
-        if (taskCount == 0) return 0.0;
-        double total = 0.0;
-        for (int i = 0; i < taskCount; i++)
-            total += tasks[i].getProgress();
-        return total / taskCount;
-    }
-
-    public String buildReport() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("Category: ").append(name).append("\n");
-        if (taskCount == 0) {
-            sb.append("  No tasks yet\n");
-        } else {
-            for (int i = 0; i < taskCount; i++)
-                sb.append("  ").append(tasks[i]).append("\n");
-        }
-        sb.append("  Average: ").append(String.format("%.2f", getAverageProgress())).append("%\n");
-        return sb.toString();
-    }
-}
 
 // ---------------- Efficient Multi-Window Tracker ----------------
 public class EfficientMultiWindowTracker extends Frame implements ActionListener {
-    private static final int MAX_CATEGORIES = 10;
-    private static final String DATA_FILE = "weekly_progress_data.txt";
-
-    final Category[] categories = new Category[MAX_CATEGORIES];
-    int categoryCount = 0;
-
+    
+    private final ProgressBackend backend;
     private TextArea outputArea;
     private Button addCategoryBtn, addTaskBtn, updateBtn, showBtn;
+    private Button delCategoryBtn, delTaskBtn;
 
     public EfficientMultiWindowTracker() {
         super("Efficient Weekly Progress Tracker");
+        
+        backend = new ProgressBackend();
 
         setLayout(new BorderLayout(5, 5));
 
@@ -131,121 +24,49 @@ public class EfficientMultiWindowTracker extends Frame implements ActionListener
         addTaskBtn = new Button("Add Task");
         updateBtn = new Button("Update Progress");
         showBtn = new Button("Show Report");
+        delCategoryBtn = new Button("Delete Category");
+        delTaskBtn = new Button("Delete Task");
 
         addCategoryBtn.addActionListener(this);
         addTaskBtn.addActionListener(this);
         updateBtn.addActionListener(this);
         showBtn.addActionListener(this);
+        delCategoryBtn.addActionListener(this);
+        delTaskBtn.addActionListener(this);
 
-        Panel btnPanel = new Panel(new FlowLayout());
-        btnPanel.add(addCategoryBtn);
-        btnPanel.add(addTaskBtn);
-        btnPanel.add(updateBtn);
-        btnPanel.add(showBtn);
+        Panel btnPanel1 = new Panel(new FlowLayout());
+        btnPanel1.add(addCategoryBtn);
+        btnPanel1.add(addTaskBtn);
+        btnPanel1.add(updateBtn);
+        btnPanel1.add(showBtn);
 
-        add(btnPanel, BorderLayout.SOUTH);
+        Panel btnPanel2 = new Panel(new FlowLayout());
+        btnPanel2.add(delCategoryBtn);
+        btnPanel2.add(delTaskBtn);
+
+        Panel botPanel = new Panel(new GridLayout(2, 1));
+        botPanel.add(btnPanel1);
+        botPanel.add(btnPanel2);
+        
+        add(botPanel, BorderLayout.SOUTH);
 
         outputArea = new TextArea(15, 60);
         outputArea.setEditable(false);
         add(outputArea, BorderLayout.CENTER);
 
-        // Load previous data (if any)
-        loadData();
-
-        setSize(700, 420);
+        setSize(700, 480);
         setLocationRelativeTo(null);
         setVisible(true);
 
-        // 🌟 NEW: ask user what they want to do first
+        // 🌟 ask user what they want to do first
         new StartDialog(this).setVisible(true);
 
         addWindowListener(new WindowAdapter() {
             public void windowClosing(WindowEvent e) {
-                saveData();   // save before exit
+                backend.saveData();   // save before exit
                 dispose();
             }
         });
-    }
-
-    // ---------------- Data helpers ----------------
-    private Category findCategory(String name) {
-        for (int i = 0; i < categoryCount; i++)
-            if (categories[i].getName().equalsIgnoreCase(name.trim()))
-                return categories[i];
-        return null;
-    }
-
-    private boolean addCategoryInternal(String name) {
-        if (categoryCount >= MAX_CATEGORIES) return false;
-        if (findCategory(name) != null) return false;
-        categories[categoryCount++] = new Category(name);
-        return true;
-    }
-
-    private String buildReport() {
-        if (categoryCount == 0) return "No categories yet.\n";
-        StringBuilder sb = new StringBuilder();
-        double totalAvg = 0.0;
-        for (int i = 0; i < categoryCount; i++) {
-            sb.append(categories[i].buildReport()).append("\n");
-            totalAvg += categories[i].getAverageProgress();
-        }
-        sb.append("Overall Weekly Progress: ")
-                .append(String.format("%.2f", totalAvg / categoryCount))
-                .append("%\n");
-        return sb.toString();
-    }
-
-    // ---------------- File save/load ----------------
-    private void saveData() {
-        try (PrintWriter out = new PrintWriter(new FileWriter(DATA_FILE))) {
-            for (int i = 0; i < categoryCount; i++) {
-                Category c = categories[i];
-                out.println("C|" + c.getName());
-                for (int j = 0; j < c.getTaskCount(); j++) {
-                    Task t = c.getTasks()[j];
-                    out.println("T|" + c.getName() + "|" + t.getName() + "|" + t.getProgress());
-                }
-            }
-        } catch (IOException e) {
-            System.out.println("Error saving data: " + e.getMessage());
-        }
-    }
-
-    private void loadData() {
-        File f = new File(DATA_FILE);
-        if (!f.exists()) return;
-
-        try (BufferedReader br = new BufferedReader(new FileReader(f))) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                String[] parts = line.split("\\|");
-                if (parts.length == 0) continue;
-
-                if ("C".equals(parts[0]) && parts.length >= 2) {
-                    String cname = parts[1].trim();
-                    addCategoryInternal(cname);
-
-                } else if ("T".equals(parts[0]) && parts.length >= 4) {
-                    String cname = parts[1].trim();
-                    String tname = parts[2].trim();
-                    double prog;
-                    try {
-                        prog = Double.parseDouble(parts[3].trim());
-                    } catch (NumberFormatException ex) {
-                        prog = 0.0;
-                    }
-                    Category c = findCategory(cname);
-                    if (c != null) {
-                        Task t = new Task(tname);
-                        t.setProgress(prog);
-                        c.addTask(t);
-                    }
-                }
-            }
-        } catch (IOException e) {
-            System.out.println("Error loading data: " + e.getMessage());
-        }
     }
 
     // ---------------- Button actions ----------------
@@ -257,11 +78,15 @@ public class EfficientMultiWindowTracker extends Frame implements ActionListener
         } else if (e.getSource() == updateBtn) {
             new UpdateDialog(this).setVisible(true);
         } else if (e.getSource() == showBtn) {
-            outputArea.setText(buildReport());
+            outputArea.setText(backend.buildReport());
+        } else if (e.getSource() == delCategoryBtn) {
+            new DeleteCategoryDialog(this).setVisible(true);
+        } else if (e.getSource() == delTaskBtn) {
+            new DeleteTaskDialog(this).setVisible(true);
         }
     }
 
-    // ---------------- Start Dialog (NEW) ----------------
+    // ---------------- Start Dialog ----------------
     class StartDialog extends Dialog implements ActionListener {
         private Button viewBtn, updateBtn, closeBtn;
 
@@ -293,7 +118,7 @@ public class EfficientMultiWindowTracker extends Frame implements ActionListener
         public void actionPerformed(ActionEvent e) {
             Object src = e.getSource();
             if (src == viewBtn) {
-                outputArea.setText(buildReport());
+                outputArea.setText(backend.buildReport());
                 dispose();
             } else if (src == updateBtn) {
                 new UpdateDialog(EfficientMultiWindowTracker.this).setVisible(true);
@@ -334,10 +159,52 @@ public class EfficientMultiWindowTracker extends Frame implements ActionListener
 
             String name = txt.getText().trim();
             if (name.isEmpty()) { showError("Enter a valid name"); return; }
-            if (!addCategoryInternal(name)) { showError("Duplicate or limit reached"); return; }
+            if (!backend.addCategory(name)) { showError("Duplicate or limit reached"); return; }
 
             showMsg("Category Added!");
             dispose();
+        }
+    }
+
+    // ---------------- Dialog: Delete Category ----------------
+    class DeleteCategoryDialog extends Dialog implements ActionListener {
+        private Choice categoryChoice;
+        private Button ok, cancel;
+
+        DeleteCategoryDialog(Frame parent) {
+            super(parent, "Delete Category", true);
+            setLayout(new GridLayout(3, 1));
+            add(new Label("Select Category to Delete:"));
+            categoryChoice = new Choice();
+            if (backend.getCategoryCount() == 0) categoryChoice.add("No Categories");
+            else for (int i = 0; i < backend.getCategoryCount(); i++) categoryChoice.add(backend.getCategories()[i].getName());
+            add(categoryChoice);
+
+            Panel bottom = new Panel(new FlowLayout());
+            ok = new Button("Delete");
+            cancel = new Button("Cancel");
+            ok.addActionListener(this);
+            cancel.addActionListener(this);
+            bottom.add(ok);
+            bottom.add(cancel);
+            add(bottom);
+
+            setSize(320, 150);
+            setLocationRelativeTo(parent);
+        }
+
+        public void actionPerformed(ActionEvent e) {
+            if (e.getSource() == cancel) { dispose(); return; }
+            if (backend.getCategoryCount() == 0) { showError("No categories available"); return; }
+
+            String cat = categoryChoice.getSelectedItem();
+            if (backend.deleteCategory(cat)) {
+                showMsg("Category Deleted!");
+                outputArea.setText(backend.buildReport());
+                dispose();
+            } else {
+                showError("Delete failed");
+            }
         }
     }
 
@@ -345,21 +212,26 @@ public class EfficientMultiWindowTracker extends Frame implements ActionListener
     class AddTaskDialog extends Dialog implements ActionListener {
         private Choice categoryChoice;
         private TextField taskName;
+        private TextField taskDesc;
         private Button ok, cancel;
 
         AddTaskDialog(Frame parent) {
             super(parent, "Add Task", true);
-            setLayout(new GridLayout(4, 1));
+            setLayout(new GridLayout(6, 1));
 
             add(new Label("Select Category:"));
             categoryChoice = new Choice();
-            if (categoryCount == 0) categoryChoice.add("No Categories");
-            else for (int i = 0; i < categoryCount; i++) categoryChoice.add(categories[i].getName());
+            if (backend.getCategoryCount() == 0) categoryChoice.add("No Categories");
+            else for (int i = 0; i < backend.getCategoryCount(); i++) categoryChoice.add(backend.getCategories()[i].getName());
             add(categoryChoice);
 
             add(new Label("Enter Task Name:"));
             taskName = new TextField(20);
             add(taskName);
+            
+            add(new Label("Enter Optional Description:"));
+            taskDesc = new TextField(20);
+            add(taskDesc);
 
             Panel bottom = new Panel(new FlowLayout());
             ok = new Button("OK");
@@ -370,27 +242,88 @@ public class EfficientMultiWindowTracker extends Frame implements ActionListener
             bottom.add(cancel);
             add(bottom);
 
-            setSize(320, 180);
+            setSize(320, 260);
             setLocationRelativeTo(parent);
         }
 
         public void actionPerformed(ActionEvent e) {
             if (e.getSource() == cancel) { dispose(); return; }
 
-            if (categoryCount == 0) { showError("No categories available"); return; }
+            if (backend.getCategoryCount() == 0) { showError("No categories available"); return; }
 
             String cat = categoryChoice.getSelectedItem();
             String task = taskName.getText().trim();
+            String desc = taskDesc.getText().trim();
+            
             if (task.isEmpty()) { showError("Enter valid task name"); return; }
 
-            Category c = findCategory(cat);
-            if (c == null) { showError("Category not found"); return; }
-
-            if (c.addTask(new Task(task))) {
+            if (backend.addTask(cat, task, desc)) {
                 showMsg("Task Added!");
                 dispose();
             } else {
-                showError("Task limit reached");
+                showError("Task limit reached or category missing");
+            }
+        }
+    }
+
+    // ---------------- Dialog: Delete Task ----------------
+    class DeleteTaskDialog extends Dialog implements ActionListener {
+        private Choice categoryChoice, taskChoice;
+        private Button ok, cancel;
+
+        DeleteTaskDialog(Frame parent) {
+            super(parent, "Delete Task", true);
+            setLayout(new GridLayout(5, 1));
+
+            add(new Label("Select Category:"));
+            categoryChoice = new Choice();
+            if (backend.getCategoryCount() == 0) categoryChoice.add("No Categories");
+            else for (int i = 0; i < backend.getCategoryCount(); i++) categoryChoice.add(backend.getCategories()[i].getName());
+            add(categoryChoice);
+
+            add(new Label("Select Task:"));
+            taskChoice = new Choice();
+            add(taskChoice);
+
+            categoryChoice.addItemListener(ev -> refreshTasks());
+            refreshTasks();
+
+            Panel bottom = new Panel(new FlowLayout());
+            ok = new Button("Delete");
+            cancel = new Button("Cancel");
+            ok.addActionListener(this);
+            cancel.addActionListener(this);
+            bottom.add(ok);
+            bottom.add(cancel);
+            add(bottom);
+
+            setSize(360, 200);
+            setLocationRelativeTo(parent);
+        }
+
+        private void refreshTasks() {
+            taskChoice.removeAll();
+            String catName = categoryChoice.getSelectedItem();
+            Category c = backend.findCategory(catName);
+            if (c == null) { taskChoice.add("No Tasks"); return; }
+            if (c.getTaskCount() == 0) { taskChoice.add("No Tasks"); return; }
+            for (Task t : c.getTasks()) {
+                if (t != null) taskChoice.add(t.getName());
+            }
+        }
+
+        public void actionPerformed(ActionEvent e) {
+            if (e.getSource() == cancel) { dispose(); return; }
+
+            String cat = categoryChoice.getSelectedItem();
+            String task = taskChoice.getSelectedItem();
+
+            if (backend.deleteTask(cat, task)) {
+                showMsg("Task Deleted!");
+                outputArea.setText(backend.buildReport());
+                dispose();
+            } else {
+                showError("Delete failed");
             }
         }
     }
@@ -407,8 +340,8 @@ public class EfficientMultiWindowTracker extends Frame implements ActionListener
 
             add(new Label("Select Category:"));
             categoryChoice = new Choice();
-            if (categoryCount == 0) categoryChoice.add("No Categories");
-            else for (int i = 0; i < categoryCount; i++) categoryChoice.add(categories[i].getName());
+            if (backend.getCategoryCount() == 0) categoryChoice.add("No Categories");
+            else for (int i = 0; i < backend.getCategoryCount(); i++) categoryChoice.add(backend.getCategories()[i].getName());
             add(categoryChoice);
 
             add(new Label("Select Task:"));
@@ -442,7 +375,7 @@ public class EfficientMultiWindowTracker extends Frame implements ActionListener
         private void refreshTasks() {
             taskChoice.removeAll();
             String catName = categoryChoice.getSelectedItem();
-            Category c = findCategory(catName);
+            Category c = backend.findCategory(catName);
             if (c == null) { taskChoice.add("No Tasks"); return; }
             if (c.getTaskCount() == 0) { taskChoice.add("No Tasks"); return; }
             for (Task t : c.getTasks()) {
@@ -454,18 +387,19 @@ public class EfficientMultiWindowTracker extends Frame implements ActionListener
             if (e.getSource() == cancel) { dispose(); return; }
 
             try {
-                Category c = findCategory(categoryChoice.getSelectedItem());
-                if (c == null) { showError("Category not found"); return; }
-                Task t = c.findTask(taskChoice.getSelectedItem());
-                if (t == null) { showError("Task not found"); return; }
+                String cat = categoryChoice.getSelectedItem();
+                String task = taskChoice.getSelectedItem();
 
                 double total = Double.parseDouble(totalField.getText().trim());
                 double done = Double.parseDouble(doneField.getText().trim());
                 if (total <= 0 || done < 0) { showError("Invalid numbers"); return; }
 
-                t.setProgressFromParts(total, done);
-                showMsg("Progress Updated to " + String.format("%.2f", t.getProgress()) + "%");
-                dispose();
+                if (backend.updateTaskProgress(cat, task, total, done)) {
+                    showMsg("Progress Updated!");
+                    dispose();
+                } else {
+                    showError("Update failed");
+                }
             } catch (Exception ex) {
                 showError("Invalid input");
             }
